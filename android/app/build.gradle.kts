@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "com.example.translator_testing_phase"
     compileSdk = 36
-    ndkVersion = 27
+    ndkVersion = "27.1.10596065"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
