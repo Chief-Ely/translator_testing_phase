@@ -1,152 +1,128 @@
 import 'package:flutter/material.dart';
-import 'package:onnx_translation/onnx_translation.dart';
+import 'functions/translator.dart';
 
-/// A single-screen app that:
-/// 1) Initializes the ONNX MarianMT model from assets/onnx_models/
-/// 2) Lets you type English text
-/// 3) On "Translate EN → CEB", replaces the TextField text with the translated output.
-///
-/// Notes about the package API (from its docs):
-/// - Instantiate: final model = OnnxModel();
-/// - Initialize once: await model.init(modelBasePath: 'assets/...');   // REQUIRED since your folder is 'onnx_models'
-/// - Translate: final out = await model.runModel("Hello", initialLangToken: '>>ceb<<'); // token optional
-///
-/// For Helsinki-NLP *bilingual* models like "opus-mt-en-ceb", the initialLangToken
-/// is typically NOT required. If outputs look wrong, try initialLangToken: '>>ceb<<'.
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const MyApp());
+
+  // Initialize translator before runApp
+  await translator.init();
+
+  runApp(MyApp());
 }
 
+// Create a global instance (using your initial translator.dart)
+final translator = Translator();
+
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'ONNX EN→CEB Test',
-      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.blue),
-      home: const TranslatorPage(),
-      debugShowCheckedModeBanner: false,
+      title: 'Translator',
+      theme: ThemeData(primarySwatch: Colors.blue),
+      home: TranslatorPage(),
     );
   }
 }
 
 class TranslatorPage extends StatefulWidget {
-  const TranslatorPage({super.key});
-
   @override
-  State<TranslatorPage> createState() => _TranslatorPageState();
+  _TranslatorPageState createState() => _TranslatorPageState();
 }
 
 class _TranslatorPageState extends State<TranslatorPage> {
-  final _controller = TextEditingController();
-  final _focusNode = FocusNode();
-
-  OnnxModel? _model;
-  bool _isInit = false;
-  bool _isTranslating = false;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _initModel();
-  }
-
-  Future<void> _initModel() async {
-    try {
-      final model = OnnxModel();
-      // IMPORTANT: you said your files are in assets/onnx_models/
-      await model.init(modelBasePath: 'assets/onnx_models');
-      setState(() {
-        _model = model;
-        _isInit = true;
-      });
-    } catch (e) {
-      setState(() {
-        _error = 'Model init failed: $e';
-      });
-    }
-  }
+  String _selectedLanguage = 'Tagalog'; // default dropdown value
+  final TextEditingController _controller = TextEditingController();
+  String _result = '';
+  bool _isLoading = false;
 
   Future<void> _translate() async {
-    if (!_isInit || _model == null) return;
-    final input = _controller.text.trim();
-    if (input.isEmpty) return;
+    final inputText = _controller.text.trim();
+    if (inputText.isEmpty) return;
 
-    // Dismiss keyboard
-    _focusNode.unfocus();
-
-    setState(() => _isTranslating = true);
+    setState(() {
+      _isLoading = true;
+      _result = '';
+    });
 
     try {
-      // For Helsinki en→ceb, initialLangToken is usually unnecessary.
-      // If translation looks off, change to: initialLangToken: '>>ceb<<'
-      final output = await _model!.runModel(
-        input,
-        // initialLangToken: '>>ceb<<', // uncomment if your model expects a target token
-      );
+      String output;
+      if (_selectedLanguage == 'Tagalog') {
+        output = await translator.filToCeb(inputText);
+      } else {
+        output = await translator.cebToFil(inputText);
+      }
 
-      // Replace the text field content with the translation (as requested).
-      _controller.text = output;
+      setState(() {
+        _result = output;
+      });
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Translate error: $e')),
-      );
+      setState(() {
+        _result = "❌ Error: $e";
+      });
     } finally {
-      if (mounted) setState(() => _isTranslating = false);
+      setState(() {
+        _isLoading = false;
+      });
     }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    _focusNode.dispose();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final body = Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          TextField(
-            controller: _controller,
-            focusNode: _focusNode,
-            decoration: const InputDecoration(
-              labelText: 'Type English here',
-              hintText: 'e.g., "How are you?"',
-              border: OutlineInputBorder(),
-            ),
-            textInputAction: TextInputAction.done,
-            maxLines: null, // allow multi-line
-            minLines: 4,
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: (!_isInit || _isTranslating) ? null : _translate,
-              icon: _isTranslating
-                  ? const SizedBox(
-                      width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.translate),
-              label: Text(_isTranslating ? 'Translating...' : 'Translate EN → CEB'),
-            ),
-          ),
-          const SizedBox(height: 8),
-          if (!_isInit && _error == null)
-            const Text('Initializing model…', style: TextStyle(fontStyle: FontStyle.italic)),
-          if (_error != null)
-            Text(_error!, style: const TextStyle(color: Colors.red)),
-        ],
-      ),
-    );
-
     return Scaffold(
-      appBar: AppBar(title: const Text('ONNX Translation Test')),
-      body: SafeArea(child: SingleChildScrollView(child: body)),
+      appBar: AppBar(title: Text("Tagalog ↔ Cebuano Translator")),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            // Dropdown
+            DropdownButton<String>(
+              value: _selectedLanguage,
+              items: ['Tagalog', 'Cebuano']
+                  .map((lang) => DropdownMenuItem(
+                        value: lang,
+                        child: Text(lang),
+                      ))
+                  .toList(),
+              onChanged: (value) {
+                setState(() {
+                  _selectedLanguage = value!;
+                });
+              },
+            ),
+            SizedBox(height: 16),
+
+            // Input field
+            TextField(
+              controller: _controller,
+              decoration: InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: "Enter text in $_selectedLanguage",
+              ),
+            ),
+            SizedBox(height: 16),
+
+            // Translate button
+            ElevatedButton(
+              onPressed: _isLoading ? null : _translate,
+              child: _isLoading
+                  ? CircularProgressIndicator(color: Colors.white)
+                  : Text("Translate"),
+            ),
+            SizedBox(height: 24),
+
+            // Output
+            Text(
+              "Result:",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            Text(
+              _result,
+              style: TextStyle(fontSize: 18, color: Colors.black87),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
